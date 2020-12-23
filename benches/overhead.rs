@@ -9,15 +9,11 @@ use futures::executor;
 use std::iter;
 
 fn init_adapter() -> wgpu::Adapter {
-    let instance = wgpu::Instance::new();
-    let adapter_future = instance.request_adapter(
-        &wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::Default,
-            compatible_surface: None,
-        },
-        wgpu::UnsafeExtensions::disallow(),
-        wgpu::BackendBit::PRIMARY,
-    );
+    let instance = wgpu::Instance::new(wgpu::BackendBit::all());
+    let adapter_future = instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::HighPerformance,
+        compatible_surface: None,
+    });
     executor::block_on(adapter_future).unwrap()
 }
 
@@ -27,19 +23,16 @@ fn init_device() -> (wgpu::Device, wgpu::Queue) {
     executor::block_on(device_future).unwrap()
 }
 
+#[allow(unused)]
 fn initialization(c: &mut criterion::Criterion) {
     let adapter = init_adapter();
 
-    //TODO: requires proper device destruction
-    if false {
-        c.bench_function("Adapter::request_device", |b| {
-            b.iter(|| {
-                let device_future =
-                    adapter.request_device(&wgpu::DeviceDescriptor::default(), None);
-                let _ = executor::block_on(device_future).unwrap();
-            })
-        });
-    }
+    c.bench_function("Adapter::request_device", |b| {
+        b.iter_with_large_drop(|| {
+            let device_future = adapter.request_device(&wgpu::DeviceDescriptor::default(), None);
+            let _ = executor::block_on(device_future).unwrap();
+        })
+    });
 }
 
 fn resource_creation(c: &mut criterion::Criterion) {
@@ -111,21 +104,23 @@ fn command_encoding(c: &mut criterion::Criterion) {
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
+        usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
     };
     let texture = device.create_texture(&texture_desc);
     let pass_desc = wgpu::RenderPassDescriptor {
+        label: None,
         color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-            attachment: &texture.create_default_view(),
+            attachment: &texture.create_view(&wgpu::TextureViewDescriptor::default()),
             resolve_target: None,
-            load_op: wgpu::LoadOp::Clear,
-            store_op: wgpu::StoreOp::Store,
-            clear_color: wgpu::Color::BLACK,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                store: true,
+            },
         }],
         depth_stencil_attachment: None,
     };
 
-    //Warning: each render pass ends up creating a new command buffer,
+    // Warning: each render pass ends up creating a new command buffer,
     // thus hitting the queue limit of command buffers eventually.
 
     c.bench_function("CommandEncoder::begin_render_pass", |b| {
@@ -141,7 +136,7 @@ fn command_encoding(c: &mut criterion::Criterion) {
         let mut command_encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         b.iter(|| {
-            let _ = command_encoder.begin_compute_pass();
+            let _ = command_encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
         });
         queue.submit(iter::once(command_encoder.finish()));
     });
@@ -161,15 +156,11 @@ fn command_encoding(c: &mut criterion::Criterion) {
 }
 
 fn queue_operation(c: &mut criterion::Criterion) {
-    let instance = wgpu::Instance::new();
-    let adapter_future = instance.request_adapter(
-        &wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::Default,
-            compatible_surface: None,
-        },
-        wgpu::UnsafeExtensions::disallow(),
-        wgpu::BackendBit::PRIMARY,
-    );
+    let instance = wgpu::Instance::new(wgpu::BackendBit::all());
+    let adapter_future = instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::HighPerformance,
+        compatible_surface: None,
+    });
     let adapter = executor::block_on(adapter_future).unwrap();
     let device_future = adapter.request_device(&wgpu::DeviceDescriptor::default(), None);
     let (device, queue) = executor::block_on(device_future).unwrap();
@@ -195,6 +186,6 @@ criterion_group!(
         .warm_up_time(std::time::Duration::from_millis(200))
         .measurement_time(std::time::Duration::from_millis(1000))
         .sample_size(50);
-    targets = initialization, resource_creation, command_encoding, queue_operation
+    targets = resource_creation, command_encoding, queue_operation
 );
 criterion_main!(overhead);

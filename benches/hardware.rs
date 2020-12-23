@@ -6,61 +6,59 @@
 extern crate criterion;
 
 use futures::executor;
+use std::borrow::Cow;
 use std::iter;
 
 fn init() -> (wgpu::Device, wgpu::Queue) {
-    let instance = wgpu::Instance::new();
-    let adapter_future = instance.request_adapter(
-        &wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::Default,
-            compatible_surface: None,
-        },
-        wgpu::UnsafeExtensions::disallow(),
-        wgpu::BackendBit::PRIMARY,
-    );
+    let instance = wgpu::Instance::new(wgpu::BackendBit::all());
+    let adapter_future = instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::HighPerformance,
+        compatible_surface: None,
+    });
     let adapter = executor::block_on(adapter_future).unwrap();
     let device_future = adapter.request_device(&wgpu::DeviceDescriptor::default(), None);
     executor::block_on(device_future).unwrap()
-}
-
-fn load_shader(name: &str) -> Vec<u32> {
-    let ty = if name.ends_with(".vert") {
-        glsl_to_spirv::ShaderType::Vertex
-    } else if name.ends_with(".frag") {
-        glsl_to_spirv::ShaderType::Fragment
-    } else if name.ends_with(".comp") {
-        glsl_to_spirv::ShaderType::Compute
-    } else {
-        unreachable!()
-    };
-
-    let path = std::path::PathBuf::from("shaders").join(name);
-    let code = std::fs::read_to_string(path).unwrap();
-    wgpu::read_spirv(glsl_to_spirv::compile(&code, ty).unwrap()).unwrap()
 }
 
 fn pixel_write(c: &mut criterion::Criterion) {
     let (device, queue) = init();
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: None,
         bind_group_layouts: &[],
+        push_constant_ranges: &[],
     });
-    let vs_bytes = load_shader("quad.vert");
-    let fs_bytes = load_shader("white.frag");
+    let vs_bytes = vk_shader_macros::include_glsl!("shaders/quad.vert");
+    let fs_bytes = vk_shader_macros::include_glsl!("shaders/white.frag");
+
+    let vs = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+        label: None,
+        source: wgpu::ShaderSource::SpirV(Cow::Borrowed(vs_bytes)),
+        flags: wgpu::ShaderFlags::empty(),
+    });
+
+    let fs = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+        label: None,
+        source: wgpu::ShaderSource::SpirV(Cow::Borrowed(fs_bytes)),
+        flags: wgpu::ShaderFlags::empty(),
+    });
 
     let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        layout: &pipeline_layout,
+        label: None,
+        layout: Some(&pipeline_layout),
         vertex_stage: wgpu::ProgrammableStageDescriptor {
-            module: &device.create_shader_module(&vs_bytes),
+            module: &vs,
             entry_point: "main",
         },
         fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
-            module: &device.create_shader_module(&fs_bytes),
+            module: &fs,
             entry_point: "main",
         }),
         rasterization_state: Some(wgpu::RasterizationStateDescriptor {
             front_face: wgpu::FrontFace::Ccw,
             cull_mode: wgpu::CullMode::None,
+            polygon_mode: wgpu::PolygonMode::Fill,
+            clamp_depth: false,
             depth_bias: 0,
             depth_bias_slope_scale: 0.0,
             depth_bias_clamp: 0.0,
@@ -74,7 +72,7 @@ fn pixel_write(c: &mut criterion::Criterion) {
         }],
         depth_stencil_state: None,
         vertex_state: wgpu::VertexStateDescriptor {
-            index_format: wgpu::IndexFormat::Uint16,
+            index_format: Some(wgpu::IndexFormat::Uint16),
             vertex_buffers: &[],
         },
         sample_count: 1,
@@ -93,15 +91,17 @@ fn pixel_write(c: &mut criterion::Criterion) {
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Rgba32Float,
-        usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
+        usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
     });
     let pass_desc = wgpu::RenderPassDescriptor {
+        label: None,
         color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-            attachment: &texture.create_default_view(),
+            attachment: &texture.create_view(&wgpu::TextureViewDescriptor::default()),
             resolve_target: None,
-            load_op: wgpu::LoadOp::Clear,
-            store_op: wgpu::StoreOp::Store,
-            clear_color: wgpu::Color::BLACK,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                store: true,
+            },
         }],
         depth_stencil_attachment: None,
     };

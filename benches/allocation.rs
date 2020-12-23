@@ -8,15 +8,11 @@ extern crate criterion;
 use futures::executor;
 
 fn init() -> (wgpu::Device, wgpu::Queue) {
-    let instance = wgpu::Instance::new();
-    let adapter_future = instance.request_adapter(
-        &wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::Default,
-            compatible_surface: None,
-        },
-        wgpu::UnsafeExtensions::disallow(),
-        wgpu::BackendBit::PRIMARY,
-    );
+    let instance = wgpu::Instance::new(wgpu::BackendBit::all());
+    let adapter_future = instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::HighPerformance,
+        compatible_surface: None,
+    });
     let adapter = executor::block_on(adapter_future).unwrap();
     let device_future = adapter.request_device(&wgpu::DeviceDescriptor::default(), None);
     executor::block_on(device_future).unwrap()
@@ -63,25 +59,35 @@ fn bind_group(c: &mut criterion::Criterion) {
     let (device, _) = init();
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: None,
-        bindings: &[
+        entries: &[
             wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                ty: wgpu::BindingType::UniformBuffer { dynamic: false },
-                ..Default::default()
+                visibility: wgpu::ShaderStage::all(),
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
             },
             wgpu::BindGroupLayoutEntry {
                 binding: 1,
-                ty: wgpu::BindingType::SampledTexture {
-                    dimension: wgpu::TextureViewDimension::D2,
-                    component_type: wgpu::TextureComponentType::Float,
+                visibility: wgpu::ShaderStage::all(),
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
                     multisampled: false,
                 },
-                ..Default::default()
+                count: None,
             },
             wgpu::BindGroupLayoutEntry {
                 binding: 2,
-                ty: wgpu::BindingType::Sampler { comparison: false },
-                ..Default::default()
+                visibility: wgpu::ShaderStage::all(),
+                ty: wgpu::BindingType::Sampler {
+                    filtering: true,
+                    comparison: false,
+                },
+                count: None,
             },
         ],
     });
@@ -104,16 +110,7 @@ fn bind_group(c: &mut criterion::Criterion) {
         format: wgpu::TextureFormat::R8Unorm,
         usage: wgpu::TextureUsage::SAMPLED,
     });
-    let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
-        label: None,
-        format: wgpu::TextureFormat::R8Unorm,
-        dimension: wgpu::TextureViewDimension::D2,
-        aspect: wgpu::TextureAspect::All,
-        base_mip_level: 0,
-        level_count: 1,
-        base_array_layer: 0,
-        array_layer_count: 1,
-    });
+    let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
 
     c.bench_function("Create and free a list of bind groups", |b| {
@@ -123,19 +120,16 @@ fn bind_group(c: &mut criterion::Criterion) {
                 groups.push(device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: None,
                     layout: &layout,
-                    bindings: &[
-                        wgpu::Binding {
+                    entries: &[
+                        wgpu::BindGroupEntry {
                             binding: 0,
-                            resource: wgpu::BindingResource::Buffer(buffer.slice(..)),
+                            resource: buffer.as_entire_binding(),
                         },
-                        wgpu::Binding {
+                        wgpu::BindGroupEntry {
                             binding: 1,
-                            resource: wgpu::BindingResource::TextureView {
-                                view: &texture_view,
-                                read_only_depth_stencil: false,
-                            },
+                            resource: wgpu::BindingResource::TextureView(&texture_view),
                         },
-                        wgpu::Binding {
+                        wgpu::BindGroupEntry {
                             binding: 2,
                             resource: wgpu::BindingResource::Sampler(&sampler),
                         },
