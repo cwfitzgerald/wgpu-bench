@@ -5,23 +5,12 @@
 #[macro_use]
 extern crate criterion;
 
-use futures::executor;
-
-fn init() -> (wgpu::Device, wgpu::Queue) {
-    let instance = wgpu::Instance::new(wgpu::BackendBit::all());
-    let adapter_future = instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::HighPerformance,
-        compatible_surface: None,
-    });
-    let adapter = executor::block_on(adapter_future).unwrap();
-    let device_future = adapter.request_device(&wgpu::DeviceDescriptor::default(), None);
-    executor::block_on(device_future).unwrap()
-}
-
 fn memory(c: &mut criterion::Criterion) {
-    let (device, queue) = init();
+    let (device, queue) = wgpu_bench::init_device();
 
-    c.bench_function("Create and free a list of large GPU-local buffers", |b| {
+    let mut group = c.benchmark_group("memory");
+    group.throughput(criterion::Throughput::Elements(7));
+    group.bench_function("Create and free a list of large GPU-local buffers", |b| {
         b.iter(|| {
             let mut buffers = Vec::new();
             for i in 0..7 {
@@ -37,18 +26,18 @@ fn memory(c: &mut criterion::Criterion) {
         })
     });
 
-    c.bench_function("Run a number of write_buffer commands", |b| {
+    const BYTES: u64 = 1 << 25;
+    group.throughput(criterion::Throughput::Bytes(BYTES));
+    group.bench_function("Run large write_buffer calls", |b| {
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size: 1 << 25,
+            size: BYTES,
             usage: wgpu::BufferUsage::COPY_DST,
             mapped_at_creation: false,
         });
-        let data = vec![0xFFu8; 1 << 25];
+        let data = vec![0xFFu8; BYTES as usize];
         b.iter(|| {
-            for i in 0..10 {
-                queue.write_buffer(&buffer, 0, &data[..1 << (16 + i)])
-            }
+            queue.write_buffer(&buffer, 0, &data[..]);
             queue.submit(None);
         });
         device.poll(wgpu::Maintain::Wait);
@@ -56,7 +45,7 @@ fn memory(c: &mut criterion::Criterion) {
 }
 
 fn bind_group(c: &mut criterion::Criterion) {
-    let (device, _) = init();
+    let (device, _) = wgpu_bench::init_device();
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: None,
         entries: &[

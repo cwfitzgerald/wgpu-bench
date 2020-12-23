@@ -12,8 +12,10 @@ publish = false
 
 [dependencies]
 futures = "0.3"
+once_cell = "1"
 vk-shader-macros = "0.2"
 wgpu = { git = "https://github.com/gfx-rs/wgpu-rs", rev = "c0418b1b8ae22e86fd0e7a7eb486e04dcb0bd6f5" }
+wgpu-subscriber = "0.1"
 
 [dev-dependencies]
 criterion = "0.3"

@@ -5,23 +5,11 @@
 #[macro_use]
 extern crate criterion;
 
-use futures::executor;
 use std::borrow::Cow;
 use std::iter;
 
-fn init() -> (wgpu::Device, wgpu::Queue) {
-    let instance = wgpu::Instance::new(wgpu::BackendBit::all());
-    let adapter_future = instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::HighPerformance,
-        compatible_surface: None,
-    });
-    let adapter = executor::block_on(adapter_future).unwrap();
-    let device_future = adapter.request_device(&wgpu::DeviceDescriptor::default(), None);
-    executor::block_on(device_future).unwrap()
-}
-
 fn pixel_write(c: &mut criterion::Criterion) {
-    let (device, queue) = init();
+    let (device, queue) = wgpu_bench::init_device();
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: None,
@@ -72,7 +60,7 @@ fn pixel_write(c: &mut criterion::Criterion) {
         }],
         depth_stencil_state: None,
         vertex_state: wgpu::VertexStateDescriptor {
-            index_format: Some(wgpu::IndexFormat::Uint16),
+            index_format: None,
             vertex_buffers: &[],
         },
         sample_count: 1,
@@ -106,22 +94,19 @@ fn pixel_write(c: &mut criterion::Criterion) {
         depth_stencil_attachment: None,
     };
 
-    //TODO: takes too long, need GPU timers
-    if false {
-        c.bench_function("pixel write", |b| {
-            b.iter(|| {
-                let mut command_encoder =
-                    device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-                {
-                    let mut pass = command_encoder.begin_render_pass(&pass_desc);
-                    pass.set_pipeline(&pipeline);
-                    pass.draw(0..4, 0..200);
-                }
-                queue.submit(iter::once(command_encoder.finish()));
-                device.poll(wgpu::Maintain::Wait);
-            })
+    c.bench_function("pixel write", |b| {
+        b.iter(|| {
+            let mut command_encoder =
+                device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+            {
+                let mut pass = command_encoder.begin_render_pass(&pass_desc);
+                pass.set_pipeline(&pipeline);
+                pass.draw(0..4, 0..200);
+            }
+            queue.submit(iter::once(command_encoder.finish()));
+            device.poll(wgpu::Maintain::Wait);
         });
-    }
+    });
 }
 
 criterion_group!(
@@ -129,7 +114,7 @@ criterion_group!(
     config = criterion::Criterion
         ::default()
         .warm_up_time(std::time::Duration::from_millis(500))
-        .measurement_time(std::time::Duration::from_millis(2000))
+        .measurement_time(std::time::Duration::from_millis(5000))
         .sample_size(10);
     targets = pixel_write
 );

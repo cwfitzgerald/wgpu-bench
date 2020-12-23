@@ -8,24 +8,9 @@ extern crate criterion;
 use futures::executor;
 use std::iter;
 
-fn init_adapter() -> wgpu::Adapter {
-    let instance = wgpu::Instance::new(wgpu::BackendBit::all());
-    let adapter_future = instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::HighPerformance,
-        compatible_surface: None,
-    });
-    executor::block_on(adapter_future).unwrap()
-}
-
-fn init_device() -> (wgpu::Device, wgpu::Queue) {
-    let adapter = init_adapter();
-    let device_future = adapter.request_device(&wgpu::DeviceDescriptor::default(), None);
-    executor::block_on(device_future).unwrap()
-}
-
 #[allow(unused)]
 fn initialization(c: &mut criterion::Criterion) {
-    let adapter = init_adapter();
+    let adapter = wgpu_bench::init_adapter();
 
     c.bench_function("Adapter::request_device", |b| {
         b.iter_with_large_drop(|| {
@@ -36,7 +21,7 @@ fn initialization(c: &mut criterion::Criterion) {
 }
 
 fn resource_creation(c: &mut criterion::Criterion) {
-    let (device, _) = init_device();
+    let (device, _) = wgpu_bench::init_device();
 
     //Warning: Metal/Intel hangs after creating 200k objects
 
@@ -84,7 +69,7 @@ fn resource_creation(c: &mut criterion::Criterion) {
 }
 
 fn command_encoding(c: &mut criterion::Criterion) {
-    let (device, queue) = init_device();
+    let (device, _) = wgpu_bench::init_device();
 
     let buffer_size = 16;
     let buffer_desc = wgpu::BufferDescriptor {
@@ -120,16 +105,13 @@ fn command_encoding(c: &mut criterion::Criterion) {
         depth_stencil_attachment: None,
     };
 
-    // Warning: each render pass ends up creating a new command buffer,
-    // thus hitting the queue limit of command buffers eventually.
-
     c.bench_function("CommandEncoder::begin_render_pass", |b| {
         let mut command_encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         b.iter(|| {
             let _ = command_encoder.begin_render_pass(&pass_desc);
         });
-        queue.submit(iter::once(command_encoder.finish()));
+        command_encoder.finish();
     });
 
     c.bench_function("CommandEncoder::begin_compute_pass", |b| {
@@ -138,10 +120,8 @@ fn command_encoding(c: &mut criterion::Criterion) {
         b.iter(|| {
             let _ = command_encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
         });
-        queue.submit(iter::once(command_encoder.finish()));
+        command_encoder.finish();
     });
-
-    //Warning: if too much work is submitted, GPU will time out.
 
     c.bench_function("CommandEncoder::copy_buffer_to_buffer", |b| {
         let buf_src = device.create_buffer(&buffer_desc);
@@ -151,7 +131,7 @@ fn command_encoding(c: &mut criterion::Criterion) {
         b.iter(|| {
             command_encoder.copy_buffer_to_buffer(&buf_src, 0, &buf_dst, 0, buffer_size);
         });
-        queue.submit(iter::once(command_encoder.finish()));
+        command_encoder.finish();
     });
 }
 
