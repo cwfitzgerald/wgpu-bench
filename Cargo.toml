@@ -9,4 +9,7 @@ edition = "2021"
 bytemuck = "1"
 humansize = "2"
 pollster = "0.3"
-wgpu = "0.17"
+wgpu = { version = "0.17", git = "https://github.com/gfx-rs/wgpu.git", rev = "37458cb4da925959348805df75ed12c6f08dd99e" }
+
+[patch.crates-io]
+metal = { version = "0.26", git = "https://github.com/Wumpf/metal-rs", branch = "more-timer-support" }
