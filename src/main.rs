@@ -6,7 +6,7 @@ use std::{
 use wgpu::{ImageCopyTexture, InstanceDescriptor};
 
 const WORKGROUP_SIZE: u32 = 64;
-const SIZE: usize = 1 << 30;
+const SIZE: usize = 1 << 28;
 
 fn main() {
     let instance = wgpu::Instance::new(InstanceDescriptor {
@@ -268,7 +268,7 @@ fn main() {
         layout: &render_bind_group_layout,
         entries: &[wgpu::BindGroupEntry {
             binding: 0,
-            resource: staging_buffer.as_entire_binding(),
+            resource: gpu_staging_buffer.as_entire_binding(),
         }],
     });
 
